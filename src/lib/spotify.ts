@@ -12,6 +12,7 @@ export interface SpotifyTrackInfo {
   progressMs?: number;
   durationMs?: number;
   timestamp?: number;
+  error?: string;
 }
 
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || '';
@@ -130,7 +131,7 @@ export async function getCurrentlyPlaying(): Promise<SpotifyTrackInfo> {
   const refreshToken = getRefreshToken();
 
   if (!refreshToken) {
-    return { isPlaying: false };
+    return { isPlaying: false, error: 'No refresh token found in environment or local storage.' };
   }
 
   try {
@@ -143,9 +144,14 @@ export async function getCurrentlyPlaying(): Promise<SpotifyTrackInfo> {
       cache: 'no-store',
     });
 
-    if (response.status === 204 || response.status > 400) {
+    if (response.status === 204) {
       // 204 No Content means nothing is currently playing
       return { isPlaying: false };
+    }
+
+    if (response.status > 400) {
+      const errorMsg = await response.text();
+      return { isPlaying: false, error: `Spotify API error (${response.status}): ${errorMsg}` };
     }
 
     const song = await response.json();
@@ -175,8 +181,8 @@ export async function getCurrentlyPlaying(): Promise<SpotifyTrackInfo> {
       durationMs,
       timestamp,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching currently playing track:', error);
-    return { isPlaying: false };
+    return { isPlaying: false, error: error.message || String(error) };
   }
 }
