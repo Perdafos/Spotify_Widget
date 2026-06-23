@@ -1,9 +1,12 @@
-import { NextResponse } from 'next/server';
-import { getCurrentlyPlaying } from '@/lib/spotify';
+import { NextResponse, type NextRequest } from 'next/server';
+import { getCurrentlyPlaying } from '@/lib/lastfm';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const data = await getCurrentlyPlaying();
+    const { searchParams } = request.nextUrl;
+    const user = searchParams.get('user') || undefined;
+    
+    const data = await getCurrentlyPlaying(user);
     
     // Return track info with cache-control headers disabled
     return new NextResponse(JSON.stringify(data), {

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { SpotifyTrackInfo } from '@/lib/spotify';
+import { SpotifyTrackInfo } from '@/lib/lastfm';
 import { Volume2, Music } from 'lucide-react';
 
 export default function WidgetClient() {
@@ -27,7 +27,9 @@ export default function WidgetClient() {
   useEffect(() => {
     const fetchNowPlaying = async () => {
       try {
-        const res = await fetch('/api/now-playing');
+        const userParam = searchParams.get('user');
+        const url = userParam ? `/api/now-playing?user=${encodeURIComponent(userParam)}` : '/api/now-playing';
+        const res = await fetch(url);
         if (res.ok) {
           const data: SpotifyTrackInfo = await res.json();
           setTrack(data);
@@ -47,7 +49,7 @@ export default function WidgetClient() {
     const pollInterval = setInterval(fetchNowPlaying, pollIntervalMs);
 
     return () => clearInterval(pollInterval);
-  }, [offlineMode, pollIntervalMs]);
+  }, [offlineMode, pollIntervalMs, searchParams]);
 
   // Smooth progress bar update (100ms interval interpolation)
   useEffect(() => {
@@ -120,7 +122,7 @@ export default function WidgetClient() {
 
     // Glow effects
     if (glow && track.isPlaying) {
-      classes += ' shadow-[0_0_20px_rgba(29,185,84,0.3)] border-[#1DB954]/20';
+      classes += ' shadow-[0_0_20px_rgba(213,16,7,0.3)] border-[#D51007]/20';
     }
 
     // Layout configuration
@@ -185,9 +187,9 @@ export default function WidgetClient() {
             {layout !== 'minimal' && (
               <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
                 <div className="flex gap-0.5 items-end h-3 w-3">
-                  <span className="w-0.5 bg-[#1DB954] rounded-full animate-[pulse_0.8s_infinite_alternate]" style={{ height: '30%' }} />
-                  <span className="w-0.5 bg-[#1DB954] rounded-full animate-[pulse_1.1s_infinite_alternate_0.15s]" style={{ height: '85%' }} />
-                  <span className="w-0.5 bg-[#1DB954] rounded-full animate-[pulse_0.7s_infinite_alternate_0.3s]" style={{ height: '50%' }} />
+                  <span className="w-0.5 bg-[#D51007] rounded-full animate-[pulse_0.8s_infinite_alternate]" style={{ height: '30%' }} />
+                  <span className="w-0.5 bg-[#D51007] rounded-full animate-[pulse_1.1s_infinite_alternate_0.15s]" style={{ height: '85%' }} />
+                  <span className="w-0.5 bg-[#D51007] rounded-full animate-[pulse_0.7s_infinite_alternate_0.3s]" style={{ height: '50%' }} />
                 </div>
               </div>
             )}
@@ -234,12 +236,12 @@ export default function WidgetClient() {
                 ? 'text-slate-500' 
                 : 'text-slate-400'
             }`}>
-              {track.isPlaying ? (track.artist || 'Unknown Artist') : 'Spotify Offline'}
+              {track.isPlaying ? (track.artist || 'Unknown Artist') : 'Offline'}
             </p>
           </div>
 
           {/* Progress Bar (Compact & Card layouts only) */}
-          {showBar && layout !== 'minimal' && track.isPlaying && (
+          {showBar && layout !== 'minimal' && track.isPlaying && track.durationMs && (
             <div className="w-full mt-2.5 space-y-1">
               <div className={`h-1 rounded-full overflow-hidden ${
                 theme === 'glass-light' || theme === 'solid-white' 
@@ -247,7 +249,7 @@ export default function WidgetClient() {
                   : 'bg-white/10'
               }`}>
                 <div 
-                  className="h-full bg-[#1DB954] rounded-full transition-all duration-100 ease-out" 
+                  className="h-full bg-[#D51007] rounded-full transition-all duration-100 ease-out" 
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -262,7 +264,7 @@ export default function WidgetClient() {
         {/* Minimal Layout State Icon */}
         {layout === 'minimal' && track.isPlaying && (
           <div className="shrink-0 pl-2">
-            <Volume2 className="w-3.5 h-3.5 text-[#1DB954]" />
+            <Volume2 className="w-3.5 h-3.5 text-[#D51007]" />
           </div>
         )}
       </div>
