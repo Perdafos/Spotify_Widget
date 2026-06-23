@@ -80,6 +80,18 @@ export async function getCurrentlyPlaying(user?: string): Promise<SpotifyTrackIn
 
     const songUrl = track.url || '';
 
+    // Fallback to iTunes Search API if Last.fm image is empty or default placeholder
+    const isPlaceholder = !albumImageUrl || 
+      albumImageUrl.includes('2a96cbd87eeb47d9237695c00975a8d9') || 
+      albumImageUrl.includes('noimage');
+      
+    if (isPlaceholder) {
+      const iTunesArtwork = await fetchiTunesArtwork(artist, title);
+      if (iTunesArtwork) {
+        albumImageUrl = iTunesArtwork;
+      }
+    }
+
     return {
       isPlaying,
       title,
@@ -92,4 +104,34 @@ export async function getCurrentlyPlaying(user?: string): Promise<SpotifyTrackIn
     console.error('Error fetching currently playing track from Last.fm:', error);
     return { isPlaying: false, error: error.message || String(error) };
   }
+}
+
+/**
+ * Fallback to search iTunes for high-resolution album artwork.
+ */
+async function fetchiTunesArtwork(artist: string, title: string): Promise<string> {
+  try {
+    const term = `${artist} ${title}`;
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&limit=1&entity=song`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.results && data.results.length > 0) {
+        const rawArtworkUrl = data.results[0].artworkUrl100 || '';
+        if (rawArtworkUrl) {
+          // Replace 100x100 with 600x600 for high resolution
+          return rawArtworkUrl.replace('100x100bb.jpg', '600x600bb.jpg');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching artwork from iTunes:', err);
+  }
+  return '';
 }
