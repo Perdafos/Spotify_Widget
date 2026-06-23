@@ -20,8 +20,8 @@ export default function WidgetClient() {
   const [track, setTrack] = useState<SpotifyTrackInfo>({ isPlaying: false });
   const [smoothProgress, setSmoothProgress] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
-  
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentSongKey, setCurrentSongKey] = useState('');
+  const [songStartTime, setSongStartTime] = useState<number>(0);
 
   // Poll current playing track
   useEffect(() => {
@@ -51,38 +51,46 @@ export default function WidgetClient() {
     return () => clearInterval(pollInterval);
   }, [offlineMode, pollIntervalMs, searchParams]);
 
+  // Sync song start time for smooth progress bar interpolation
+  useEffect(() => {
+    if (!track.isPlaying) {
+      setCurrentSongKey('');
+      setSongStartTime(0);
+      return;
+    }
+    const key = `${track.title}-${track.artist}`;
+    setCurrentSongKey((prevKey) => {
+      if (prevKey !== key) {
+        setSongStartTime(Date.now() - (track.progressMs || 0));
+        return key;
+      }
+      if (track.progressMs !== undefined) {
+        setSongStartTime(Date.now() - track.progressMs);
+      }
+      return prevKey;
+    });
+  }, [track.isPlaying, track.title, track.artist, track.progressMs]);
+
   // Smooth progress bar update (100ms interval interpolation)
   useEffect(() => {
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);
-      progressIntervalRef.current = null;
-    }
-
-    if (!track.isPlaying || !track.progressMs || !track.durationMs) {
+    if (!track.isPlaying || !track.durationMs || !songStartTime) {
       setSmoothProgress(0);
       return;
     }
 
-    setSmoothProgress(track.progressMs);
-    let lastUpdate = Date.now();
+    setSmoothProgress(Math.max(0, Date.now() - songStartTime));
 
-    progressIntervalRef.current = setInterval(() => {
-      const now = Date.now();
-      const elapsed = now - lastUpdate;
-      lastUpdate = now;
-
-      setSmoothProgress((prev) => {
-        const next = prev + elapsed;
-        return next >= (track.durationMs || 0) ? 0 : next;
-      });
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - songStartTime;
+      if (elapsed >= (track.durationMs || 0)) {
+        setSmoothProgress(track.durationMs || 0);
+      } else {
+        setSmoothProgress(elapsed);
+      }
     }, 100);
 
-    return () => {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-      }
-    };
-  }, [track.isPlaying, track.progressMs, track.durationMs, track.timestamp]);
+    return () => clearInterval(interval);
+  }, [track.isPlaying, track.durationMs, songStartTime]);
 
   // Calculation for progress percentage
   const progressPercent = track.durationMs 

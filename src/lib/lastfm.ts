@@ -80,16 +80,16 @@ export async function getCurrentlyPlaying(user?: string): Promise<SpotifyTrackIn
 
     const songUrl = track.url || '';
 
-    // Fallback to iTunes Search API if Last.fm image is empty or default placeholder
-    const isPlaceholder = !albumImageUrl || 
-      albumImageUrl.includes('2a96cbd87eeb47d9237695c00975a8d9') || 
-      albumImageUrl.includes('noimage');
-      
-    if (isPlaceholder) {
-      const iTunesArtwork = await fetchiTunesArtwork(artist, title);
-      if (iTunesArtwork) {
-        albumImageUrl = iTunesArtwork;
-      }
+    // Fetch details from iTunes (duration and high-resolution artwork)
+    let durationMs: number | undefined = undefined;
+    const itunesInfo = await fetchiTunesTrackInfo(artist, title);
+    if (itunesInfo.durationMs) {
+      durationMs = itunesInfo.durationMs;
+    }
+    
+    // Prefer high-resolution iTunes artwork, fallback to Last.fm artwork
+    if (itunesInfo.artworkUrl) {
+      albumImageUrl = itunesInfo.artworkUrl;
     }
 
     return {
@@ -99,6 +99,7 @@ export async function getCurrentlyPlaying(user?: string): Promise<SpotifyTrackIn
       album,
       albumImageUrl,
       songUrl,
+      durationMs,
     };
   } catch (error: any) {
     console.error('Error fetching currently playing track from Last.fm:', error);
@@ -107,9 +108,9 @@ export async function getCurrentlyPlaying(user?: string): Promise<SpotifyTrackIn
 }
 
 /**
- * Fallback to search iTunes for high-resolution album artwork.
+ * Fallback to search iTunes for high-resolution album artwork and track duration.
  */
-async function fetchiTunesArtwork(artist: string, title: string): Promise<string> {
+async function fetchiTunesTrackInfo(artist: string, title: string): Promise<{ artworkUrl?: string; durationMs?: number }> {
   try {
     const term = `${artist} ${title}`;
     const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&limit=1&entity=song`;
@@ -123,15 +124,19 @@ async function fetchiTunesArtwork(artist: string, title: string): Promise<string
     if (response.ok) {
       const data = await response.json();
       if (data.results && data.results.length > 0) {
-        const rawArtworkUrl = data.results[0].artworkUrl100 || '';
+        const result = data.results[0];
+        const rawArtworkUrl = result.artworkUrl100 || '';
+        const durationMs = result.trackTimeMillis || undefined;
+        let artworkUrl = '';
         if (rawArtworkUrl) {
           // Replace 100x100 with 600x600 for high resolution
-          return rawArtworkUrl.replace('100x100bb.jpg', '600x600bb.jpg');
+          artworkUrl = rawArtworkUrl.replace('100x100bb.jpg', '600x600bb.jpg');
         }
+        return { artworkUrl, durationMs };
       }
     }
   } catch (err) {
-    console.error('Error fetching artwork from iTunes:', err);
+    console.error('Error fetching track info from iTunes:', err);
   }
-  return '';
+  return {};
 }

@@ -32,7 +32,7 @@ export default function SetupClient({
   // Widget Customization States
   const [widgetTheme, setWidgetTheme] = useState('glass-dark');
   const [widgetLayout, setWidgetLayout] = useState('compact');
-  const [showProgressBar, setShowProgressBar] = useState(false);
+  const [showProgressBar, setShowProgressBar] = useState(true);
   const [glowEffect, setGlowEffect] = useState(true);
   
   // Demo Track state for previewing
@@ -43,10 +43,16 @@ export default function SetupClient({
     album: 'I Love You.',
     albumImageUrl: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300&auto=format&fit=crop',
     songUrl: '#',
+    durationMs: 240000,
+    progressMs: 98000,
   });
   
   const [liveData, setLiveData] = useState<SpotifyTrackInfo | null>(null);
   const [isPollingLive, setIsPollingLive] = useState(false);
+
+  const [smoothProgress, setSmoothProgress] = useState(0);
+  const [currentSongKey, setCurrentSongKey] = useState('');
+  const [songStartTime, setSongStartTime] = useState<number>(0);
 
   // Copy helper
   const handleCopy = (text: string, setter: (val: boolean) => void) => {
@@ -84,7 +90,7 @@ export default function SetupClient({
     if (username) params.append('user', username);
     if (widgetTheme !== 'glass-dark') params.append('theme', widgetTheme);
     if (widgetLayout !== 'compact') params.append('layout', widgetLayout);
-    if (showProgressBar) params.append('bar', 'true');
+    if (!showProgressBar) params.append('bar', 'false');
     if (glowEffect) params.append('glow', 'true');
     
     const queryString = params.toString();
@@ -93,6 +99,58 @@ export default function SetupClient({
 
   // Active track to display in preview (either live or demo)
   const activeTrack = isPollingLive && liveData ? liveData : nowPlaying;
+
+  // Sync song start time for smooth progress bar interpolation in preview
+  useEffect(() => {
+    if (!activeTrack.isPlaying) {
+      setCurrentSongKey('');
+      setSongStartTime(0);
+      return;
+    }
+    const key = `${activeTrack.title}-${activeTrack.artist}`;
+    setCurrentSongKey((prevKey) => {
+      if (prevKey !== key) {
+        setSongStartTime(Date.now() - (activeTrack.progressMs || 0));
+        return key;
+      }
+      if (activeTrack.progressMs !== undefined) {
+        setSongStartTime(Date.now() - activeTrack.progressMs);
+      }
+      return prevKey;
+    });
+  }, [activeTrack.isPlaying, activeTrack.title, activeTrack.artist, activeTrack.progressMs]);
+
+  // Smooth progress bar update (100ms interval interpolation) in preview
+  useEffect(() => {
+    if (!activeTrack.isPlaying || !activeTrack.durationMs || !songStartTime) {
+      setSmoothProgress(0);
+      return;
+    }
+
+    setSmoothProgress(Math.max(0, Date.now() - songStartTime));
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - songStartTime;
+      if (elapsed >= (activeTrack.durationMs || 0)) {
+        setSmoothProgress(activeTrack.durationMs || 0);
+      } else {
+        setSmoothProgress(elapsed);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [activeTrack.isPlaying, activeTrack.durationMs, songStartTime]);
+
+  const progressPercent = activeTrack.durationMs 
+    ? Math.min(100, (smoothProgress / activeTrack.durationMs) * 100)
+    : 0;
+
+  const formatTime = (ms: number) => {
+    const totalSecs = Math.floor(ms / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
 
   // Determine styling classes for preview based on user options
   const getPreviewClasses = () => {
@@ -359,6 +417,26 @@ export default function SetupClient({
                   }`}>
                     {activeTrack.artist || 'Waiting for song...'}
                   </p>
+
+                  {/* Progress Bar (Compact & Card layouts only) */}
+                  {showProgressBar && widgetLayout !== 'minimal' && activeTrack.isPlaying && activeTrack.durationMs && (
+                    <div className="w-full mt-2.5 space-y-1">
+                      <div className={`h-1 rounded-full overflow-hidden ${
+                        widgetTheme === 'glass-light' || widgetTheme === 'solid-white' 
+                          ? 'bg-slate-200' 
+                          : 'bg-white/10'
+                      }`}>
+                        <div 
+                          className="h-full bg-[#D51007] rounded-full transition-all duration-100 ease-out" 
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[8px] font-mono text-slate-500">
+                        <span>{formatTime(smoothProgress)}</span>
+                        <span>{formatTime(activeTrack.durationMs || 0)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Compact styling status decoration */}
@@ -431,6 +509,25 @@ export default function SetupClient({
 
               {/* Toggle Switches */}
               <div className="space-y-3 pt-2">
+                {/* Progress Bar Toggle */}
+                <div className="flex items-center justify-between">
+                  <label htmlFor="bar-toggle" className="text-xs text-slate-400 cursor-pointer">Tampilkan Progress Bar & Waktu</label>
+                  <button
+                    id="bar-toggle"
+                    onClick={() => setShowProgressBar(!showProgressBar)}
+                    className={`w-10 h-6 rounded-full transition-colors relative focus:outline-none ${
+                      showProgressBar ? 'bg-[#D51007]' : 'bg-slate-800'
+                    }`}
+                  >
+                    <span 
+                      className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        showProgressBar ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Glow Toggle */}
                 <div className="flex items-center justify-between">
                   <label htmlFor="glow-toggle" className="text-xs text-slate-400 cursor-pointer">Efek Glow Neon Red</label>
                   <button
