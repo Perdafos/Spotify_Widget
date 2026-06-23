@@ -5,6 +5,9 @@ export interface SpotifyTrackInfo {
   album?: string;
   albumImageUrl?: string;
   songUrl?: string;
+  progressMs?: number;
+  durationMs?: number;
+  timestamp?: number;
   error?: string;
 }
 

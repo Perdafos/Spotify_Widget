@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Settings, 
-  CheckCircle, 
   Copy, 
   ExternalLink, 
   RefreshCw, 
@@ -13,38 +12,27 @@ import {
   AlertTriangle,
   Play,
   Layers,
-  Sparkles
+  Sparkles,
+  ExternalLink as LinkIcon
 } from 'lucide-react';
-
-const SpotifyIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
-    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.564.387-.86.207-2.377-1.454-5.37-1.783-8.894-.978-.336.077-.67-.134-.748-.47-.077-.337.134-.67.47-.749 3.856-.88 7.15-.509 9.825 1.13.295.178.387.563.207.86zm1.224-2.723c-.226.367-.706.487-1.072.261-2.717-1.67-6.86-2.152-10.065-1.18-.41.124-.843-.105-.968-.515-.125-.41.104-.843.515-.968 3.666-1.112 8.225-.572 11.33 1.338.366.226.486.706.26 1.072zm.106-2.834C14.364 8.78 8.497 8.583 5.114 9.61c-.518.157-1.07-.136-1.228-.654-.158-.519.136-1.07.654-1.227 3.882-1.179 10.37-.954 14.484 1.488.466.277.618.88.34 1.346-.277.466-.88.618-1.346.34z"/>
-  </svg>
-);
-import { SpotifyTrackInfo } from '@/lib/spotify';
+import { SpotifyTrackInfo } from '@/lib/lastfm';
 
 interface SetupClientProps {
-  success: boolean;
-  error: string | null;
-  refreshToken: string | null;
   isConfigured: boolean;
-  redirectUri: string;
+  defaultUsername: string;
 }
 
 export default function SetupClient({
-  success,
-  error,
-  refreshToken,
   isConfigured,
-  redirectUri
+  defaultUsername
 }: SetupClientProps) {
-  const [copied, setCopied] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [username, setUsername] = useState(defaultUsername);
   
   // Widget Customization States
   const [widgetTheme, setWidgetTheme] = useState('glass-dark');
   const [widgetLayout, setWidgetLayout] = useState('compact');
-  const [showProgressBar, setShowProgressBar] = useState(true);
+  const [showProgressBar, setShowProgressBar] = useState(false);
   const [glowEffect, setGlowEffect] = useState(true);
   
   // Demo Track state for previewing
@@ -55,9 +43,6 @@ export default function SetupClient({
     album: 'I Love You.',
     albumImageUrl: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=300&auto=format&fit=crop',
     songUrl: '#',
-    progressMs: 78000,
-    durationMs: 240000,
-    timestamp: Date.now(),
   });
   
   const [liveData, setLiveData] = useState<SpotifyTrackInfo | null>(null);
@@ -76,7 +61,8 @@ export default function SetupClient({
 
     const fetchNowPlaying = async () => {
       try {
-        const res = await fetch('/api/now-playing');
+        const url = username ? `/api/now-playing?user=${encodeURIComponent(username)}` : '/api/now-playing';
+        const res = await fetch(url);
         if (res.ok) {
           const data: SpotifyTrackInfo = await res.json();
           setLiveData(data);
@@ -89,15 +75,16 @@ export default function SetupClient({
     fetchNowPlaying();
     const interval = setInterval(fetchNowPlaying, 5000);
     return () => clearInterval(interval);
-  }, [isPollingLive]);
+  }, [isPollingLive, username]);
 
   // Construct widget preview URL
   const getWidgetUrl = (absolute = false) => {
     const basePath = absolute && typeof window !== 'undefined' ? window.location.origin : '';
     const params = new URLSearchParams();
+    if (username) params.append('user', username);
     if (widgetTheme !== 'glass-dark') params.append('theme', widgetTheme);
     if (widgetLayout !== 'compact') params.append('layout', widgetLayout);
-    if (!showProgressBar) params.append('bar', 'false');
+    if (showProgressBar) params.append('bar', 'true');
     if (glowEffect) params.append('glow', 'true');
     
     const queryString = params.toString();
@@ -106,43 +93,6 @@ export default function SetupClient({
 
   // Active track to display in preview (either live or demo)
   const activeTrack = isPollingLive && liveData ? liveData : nowPlaying;
-
-  // Local state for smooth progress bar updates in preview
-  const [smoothProgress, setSmoothProgress] = useState(0);
-
-  useEffect(() => {
-    if (!activeTrack.isPlaying || !activeTrack.progressMs || !activeTrack.durationMs) {
-      setSmoothProgress(0);
-      return;
-    }
-
-    setSmoothProgress(activeTrack.progressMs);
-    let lastUpdate = Date.now();
-
-    const animFrame = setInterval(() => {
-      const now = Date.now();
-      const elapsed = now - lastUpdate;
-      lastUpdate = now;
-
-      setSmoothProgress((prev) => {
-        const next = prev + elapsed;
-        return next >= (activeTrack.durationMs || 0) ? 0 : next;
-      });
-    }, 100);
-
-    return () => clearInterval(animFrame);
-  }, [activeTrack.isPlaying, activeTrack.progressMs, activeTrack.durationMs, activeTrack.timestamp]);
-
-  const progressPercent = activeTrack.durationMs 
-    ? Math.min(100, (smoothProgress / activeTrack.durationMs) * 100)
-    : 0;
-
-  const formatTime = (ms: number) => {
-    const totalSecs = Math.floor(ms / 1000);
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
 
   // Determine styling classes for preview based on user options
   const getPreviewClasses = () => {
@@ -163,8 +113,8 @@ export default function SetupClient({
     }
 
     // Glow styling
-    if (glowEffect) {
-      base += ' shadow-[0_0_25px_rgba(29,185,84,0.15)]';
+    if (glowEffect && activeTrack.isPlaying) {
+      base += ' shadow-[0_0_25px_rgba(213,16,7,0.2)] border-[#D51007]/20';
     }
 
     // Layout configuration
@@ -181,26 +131,26 @@ export default function SetupClient({
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 font-sans selection:bg-[#1DB954] selection:text-black">
+    <div className="min-h-screen bg-[#0B0F19] text-slate-100 font-sans selection:bg-[#D51007] selection:text-white">
       {/* Glow dots decoration */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-[#1DB954]/10 rounded-full blur-3xl -z-10 pointer-events-none" />
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-[#D51007]/10 rounded-full blur-3xl -z-10 pointer-events-none" />
       <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl -z-10 pointer-events-none" />
 
       {/* Header */}
       <nav className="border-b border-white/5 bg-slate-950/40 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#1DB954]/10 rounded-xl border border-[#1DB954]/20">
-              <span className="text-[#1DB954] text-xl font-bold">Sp</span>
+            <div className="p-2 bg-[#D51007]/10 rounded-xl border border-[#D51007]/20">
+              <Music className="text-[#D51007] w-6 h-6" />
             </div>
             <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              Spotify Stream Widget
+              Music Stream Widget
             </h1>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs px-2.5 py-1 bg-slate-800 rounded-full border border-white/5 text-slate-400 flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${isConfigured ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-              {isConfigured ? 'Configured' : 'Credentials Missing'}
+              {isConfigured ? 'Last.fm Connected' : 'API Key Missing'}
             </span>
           </div>
         </div>
@@ -219,48 +169,14 @@ export default function SetupClient({
               <div className="space-y-1.5">
                 <h4 className="font-semibold text-white">Prasyarat Terdeteksi Kosong (.env)</h4>
                 <p className="text-sm text-slate-300">
-                  Anda perlu mengatur <strong>SPOTIFY_CLIENT_ID</strong> dan <strong>SPOTIFY_CLIENT_SECRET</strong> di file <code>.env.local</code> Anda terlebih dahulu sebelum bisa melakukan otorisasi.
+                  Anda perlu mengatur <strong>LASTFM_API_KEY</strong> di file <code>.env</code> Anda (atau di Vercel Dashboard) agar widget dapat memanggil API Last.fm.
                 </p>
                 <div className="text-xs pt-1.5 text-slate-400 space-y-1">
-                  <p>1. Copy <code>.env.example</code> menjadi <code>.env.local</code></p>
-                  <p>2. Isi Client ID dan Client Secret dari Spotify Developer Dashboard</p>
-                  <p>3. Restart server pengembangan Next.js</p>
+                  <p>1. Buat API key gratis di <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer" className="text-red-400 underline inline-flex items-center gap-0.5">Last.fm API Account <ExternalLink className="w-3 h-3 inline" /></a></p>
+                  <p>2. Buat file <code>.env</code> di root proyek Anda</p>
+                  <p>3. Masukkan <code>LASTFM_API_KEY=api_key_anda</code></p>
+                  <p>4. Restart server pengembangan lokal Anda atau lakukan Redeploy di Vercel</p>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Success block */}
-          {success && refreshToken && (
-            <div className="p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl space-y-4">
-              <div className="flex gap-3 items-center">
-                <CheckCircle className="w-6 h-6 text-emerald-500" />
-                <h3 className="text-lg font-semibold text-white">Koneksi Spotify Berhasil!</h3>
-              </div>
-              <p className="text-sm text-slate-300">
-                Refresh Token Anda telah berhasil diambil. Token ini telah disimpan secara otomatis ke file <code>spotify-token.json</code> di root proyek Anda untuk pengembangan lokal.
-              </p>
-
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">Refresh Token Anda (Untuk Vercel)</label>
-                <div className="flex gap-2">
-                  <input 
-                    type="password" 
-                    readOnly 
-                    value={refreshToken} 
-                    className="bg-slate-950 border border-white/10 rounded-xl px-4 py-2 text-sm font-mono w-full text-slate-300 focus:outline-none"
-                  />
-                  <button
-                    onClick={() => handleCopy(refreshToken, setCopied)}
-                    className="px-4 py-2 bg-slate-800 border border-white/10 hover:bg-slate-700 transition rounded-xl text-sm flex items-center gap-2 text-slate-300"
-                  >
-                    <Copy className="w-4 h-4" />
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-400">
-                  ⚠️ <strong>Tips:</strong> Jika Anda mendeploy widget ini ke Vercel, tambahkan Environment Variable bernama <code>SPOTIFY_REFRESH_TOKEN</code> dengan nilai di atas agar widget terus berjalan secara otomatis.
-                </p>
               </div>
             </div>
           )}
@@ -268,45 +184,42 @@ export default function SetupClient({
           {/* Connection Step Card */}
           <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-6 space-y-6">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#1DB954]/10 border border-[#1DB954]/20 flex items-center justify-center text-[#1DB954]">
-                <SpotifyIcon className="w-5 h-5" />
+              <div className="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500">
+                <Sliders className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-lg text-white">Langkah 1: Hubungkan dengan Spotify</h3>
-                <p className="text-sm text-slate-400">Izinkan aplikasi Anda mengakses status pemutaran lagu.</p>
+                <h3 className="font-bold text-lg text-white">Langkah 1: Konfigurasi Username Last.fm</h3>
+                <p className="text-sm text-slate-400">Hubungkan widget dengan memasukkan nama pengguna Last.fm Anda.</p>
               </div>
             </div>
 
-            <div className="p-4 bg-slate-950/50 rounded-xl border border-white/5 text-sm space-y-3 text-slate-300">
-              <div className="flex gap-3">
-                <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold shrink-0">1</span>
-                <p>Pastikan Redirect URI di Spotify Developer Dashboard Anda diatur ke:<br />
-                  <code className="text-emerald-400 font-mono break-all">{redirectUri || 'http://localhost:3000/api/callback'}</code>
-                </p>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">Username Last.fm Anda</label>
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Contoh: perdafos"
+                  className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm w-full text-slate-300 focus:outline-none focus:border-[#D51007] transition"
+                />
               </div>
-              <div className="flex gap-3">
-                <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold shrink-0">2</span>
-                <p>Klik tombol di bawah ini untuk mengautentikasi akun Spotify Anda.</p>
+
+              <div className="p-4 bg-slate-950/50 rounded-xl border border-white/5 text-sm space-y-3 text-slate-300">
+                <div className="flex gap-3">
+                  <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold shrink-0">1</span>
+                  <p>Pasang ekstensi browser **Web Scrobbler** (Chrome/Firefox/Edge) atau aplikasi Last.fm di HP Android/iOS Anda.</p>
+                </div>
+                <div className="flex gap-3">
+                  <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold shrink-0">2</span>
+                  <p>Hubungkan pemutar musik Anda (seperti **YouTube Music**, Spotify Free, Apple Music, atau lainnya) pada Web Scrobbler.</p>
+                </div>
+                <div className="flex gap-3">
+                  <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold shrink-0">3</span>
+                  <p>Saat Anda memutar musik, data lagu yang diputar akan otomatis diteruskan secara langsung ke widget ini.</p>
+                </div>
               </div>
             </div>
-
-            <a
-              href={isConfigured ? "/api/login" : "#"}
-              onClick={(e) => {
-                if (!isConfigured) {
-                  e.preventDefault();
-                  alert('Silakan atur file .env.local terlebih dahulu!');
-                }
-              }}
-              className={`w-full py-3.5 px-6 rounded-xl flex items-center justify-center gap-2 font-semibold transition-all ${
-                isConfigured 
-                  ? 'bg-[#1DB954] hover:bg-[#1ed760] text-black shadow-lg shadow-[#1DB954]/20 hover:scale-[1.01]' 
-                  : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-white/5'
-              }`}
-            >
-              <SpotifyIcon className="w-5 h-5 fill-current text-black shrink-0" />
-              Sambungkan Akun Spotify
-            </a>
           </div>
 
           {/* Integration instructions for OBS */}
@@ -329,11 +242,11 @@ export default function SetupClient({
                 </div>
                 <div className="flex items-start gap-2.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-2 shrink-0" />
-                  <p>Beri nama widget (misalnya <em>Spotify Widget</em>) dan paste URL widget yang telah disalin di bawah.</p>
+                  <p>Beri nama widget (misalnya <em>Music Widget</em>) dan paste URL widget yang telah disalin di bawah.</p>
                 </div>
                 <div className="flex items-start gap-2.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-2 shrink-0" />
-                  <p>Atur ukuran Width dan Height sesuai gaya pilihan Anda. Contoh: <strong>420px x 110px</strong> untuk horizontal compact.</p>
+                  <p>Atur ukuran Width dan Height sesuai layout pilihan Anda (misalnya <strong>420px x 110px</strong> untuk Compact Row).</p>
                 </div>
               </div>
 
@@ -348,7 +261,12 @@ export default function SetupClient({
                   />
                   <button
                     onClick={() => handleCopy(getWidgetUrl(true), setCopiedUrl)}
-                    className="px-4 py-2 bg-slate-800 border border-white/10 hover:bg-slate-700 transition rounded-xl text-sm flex items-center gap-2 text-slate-300 shrink-0"
+                    disabled={!username}
+                    className={`px-4 py-2 border rounded-xl text-sm flex items-center gap-2 shrink-0 transition ${
+                      username
+                        ? 'bg-slate-800 border-white/10 hover:bg-slate-700 text-slate-300'
+                        : 'bg-slate-900 border-white/5 text-slate-600 cursor-not-allowed'
+                    }`}
                   >
                     <Copy className="w-4 h-4" />
                     {copiedUrl ? 'Copied' : 'Copy URL'}
@@ -374,21 +292,24 @@ export default function SetupClient({
               {/* Poll live switch */}
               <button 
                 onClick={() => setIsPollingLive(!isPollingLive)}
+                disabled={!isConfigured || !username}
                 className={`text-xs px-3 py-1.5 rounded-full border transition-all flex items-center gap-1.5 ${
-                  isPollingLive 
-                    ? 'bg-[#1DB954]/20 border-[#1DB954]/30 text-[#1DB954]' 
-                    : 'bg-slate-800 border-white/5 text-slate-400 hover:bg-slate-700'
+                  !isConfigured || !username
+                    ? 'bg-slate-900 border-white/5 text-slate-600 cursor-not-allowed'
+                    : isPollingLive 
+                      ? 'bg-red-500/20 border-red-500/30 text-red-400' 
+                      : 'bg-slate-800 border-white/5 text-slate-400 hover:bg-slate-700'
                 }`}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isPollingLive ? 'animate-spin' : ''}`} />
-                {isPollingLive ? 'Live Spotify data' : 'Preview Demo'}
+                {isPollingLive ? 'Live Last.fm data' : 'Preview Demo'}
               </button>
             </div>
 
             {/* Container for Preview */}
             <div className="flex-1 min-h-[220px] bg-slate-950/40 border border-white/5 rounded-xl flex items-center justify-center p-6 relative overflow-hidden bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
               
-              {/* Spotify widget element wrapper */}
+              {/* Music widget element wrapper */}
               <div className={getPreviewClasses()}>
                 {/* Album Art */}
                 {activeTrack.albumImageUrl && (
@@ -411,9 +332,9 @@ export default function SetupClient({
                     {activeTrack.isPlaying && widgetLayout !== 'minimal' && (
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                         <div className="flex gap-1 items-end h-4 w-4">
-                          <span className="w-0.75 bg-[#1DB954] rounded-full animate-[pulse_1s_infinite_alternate]" style={{ height: '40%' }} />
-                          <span className="w-0.75 bg-[#1DB954] rounded-full animate-[pulse_1.2s_infinite_alternate_0.2s]" style={{ height: '90%' }} />
-                          <span className="w-0.75 bg-[#1DB954] rounded-full animate-[pulse_0.8s_infinite_alternate_0.4s]" style={{ height: '60%' }} />
+                          <span className="w-0.75 bg-[#D51007] rounded-full animate-[pulse_1s_infinite_alternate]" style={{ height: '40%' }} />
+                          <span className="w-0.75 bg-[#D51007] rounded-full animate-[pulse_1.2s_infinite_alternate_0.2s]" style={{ height: '90%' }} />
+                          <span className="w-0.75 bg-[#D51007] rounded-full animate-[pulse_0.8s_infinite_alternate_0.4s]" style={{ height: '60%' }} />
                         </div>
                       </div>
                     )}
@@ -427,7 +348,7 @@ export default function SetupClient({
                     : 'flex flex-col justify-center'
                 }`}>
                   <div className="w-full overflow-hidden relative">
-                    <h4 className="font-bold text-sm truncate w-full hover:text-[#1DB954] transition-colors">
+                    <h4 className="font-bold text-sm truncate w-full hover:text-[#D51007] transition-colors">
                       {activeTrack.title || 'Nothing Playing'}
                     </h4>
                   </div>
@@ -436,34 +357,14 @@ export default function SetupClient({
                       ? 'text-slate-500' 
                       : 'text-slate-400'
                   }`}>
-                    {activeTrack.artist || 'Connect your account'}
+                    {activeTrack.artist || 'Waiting for song...'}
                   </p>
-
-                  {/* Horizontal Progress Bar */}
-                  {showProgressBar && widgetLayout !== 'minimal' && activeTrack.isPlaying && (
-                    <div className="w-full mt-3 space-y-1.5">
-                      <div className={`h-1.5 rounded-full overflow-hidden ${
-                        widgetTheme === 'glass-light' || widgetTheme === 'solid-white' 
-                          ? 'bg-slate-200' 
-                          : 'bg-white/10'
-                      }`}>
-                        <div 
-                          className="h-full bg-[#1DB954] rounded-full transition-all duration-100 ease-out" 
-                          style={{ width: `${progressPercent}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[10px] font-mono text-slate-500">
-                        <span>{formatTime(smoothProgress)}</span>
-                        <span>{formatTime(activeTrack.durationMs || 0)}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Compact styling status decoration */}
                 {widgetLayout === 'minimal' && activeTrack.isPlaying && (
                   <div className="shrink-0 pl-2">
-                    <Volume2 className="w-4 h-4 text-[#1DB954]" />
+                    <Volume2 className="w-4 h-4 text-[#D51007]" />
                   </div>
                 )}
               </div>
@@ -473,7 +374,7 @@ export default function SetupClient({
             {/* Customizer Inputs */}
             <div className="space-y-5">
               <h4 className="font-semibold text-sm text-slate-300 flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-[#1DB954]" />
+                <Sliders className="w-4 h-4 text-[#D51007]" />
                 Kustomisasi Tampilan
               </h4>
 
@@ -493,7 +394,7 @@ export default function SetupClient({
                       onClick={() => setWidgetTheme(theme.id)}
                       className={`text-left px-3 py-2 rounded-xl text-xs border transition ${
                         widgetTheme === theme.id 
-                          ? 'bg-slate-800 border-[#1DB954] text-white font-medium' 
+                          ? 'bg-slate-800 border-[#D51007] text-white font-medium' 
                           : 'bg-slate-950 border-white/5 text-slate-400 hover:bg-slate-900'
                       }`}
                     >
@@ -517,7 +418,7 @@ export default function SetupClient({
                       onClick={() => setWidgetLayout(layout.id)}
                       className={`flex-1 text-center py-2.5 rounded-xl border transition ${
                         widgetLayout === layout.id 
-                          ? 'bg-slate-800 border-[#1DB954] text-white font-medium' 
+                          ? 'bg-slate-800 border-[#D51007] text-white font-medium' 
                           : 'bg-slate-950 border-white/5 text-slate-400 hover:bg-slate-900'
                       }`}
                     >
@@ -531,34 +432,12 @@ export default function SetupClient({
               {/* Toggle Switches */}
               <div className="space-y-3 pt-2">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="bar-toggle" className="text-xs text-slate-400 cursor-pointer">Tampilkan Progress Bar Lagu</label>
-                  <button
-                    id="bar-toggle"
-                    onClick={() => setShowProgressBar(!showProgressBar)}
-                    disabled={widgetLayout === 'minimal'}
-                    className={`w-10 h-6 rounded-full transition-colors relative focus:outline-none ${
-                      widgetLayout === 'minimal' 
-                        ? 'bg-slate-800 opacity-50 cursor-not-allowed' 
-                        : showProgressBar 
-                          ? 'bg-[#1DB954]' 
-                          : 'bg-slate-800'
-                    }`}
-                  >
-                    <span 
-                      className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        showProgressBar && widgetLayout !== 'minimal' ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <label htmlFor="glow-toggle" className="text-xs text-slate-400 cursor-pointer">Efek Glow Neon Spotify</label>
+                  <label htmlFor="glow-toggle" className="text-xs text-slate-400 cursor-pointer">Efek Glow Neon Red</label>
                   <button
                     id="glow-toggle"
                     onClick={() => setGlowEffect(!glowEffect)}
                     className={`w-10 h-6 rounded-full transition-colors relative focus:outline-none ${
-                      glowEffect ? 'bg-[#1DB954]' : 'bg-slate-800'
+                      glowEffect ? 'bg-[#D51007]' : 'bg-slate-800'
                     }`}
                   >
                     <span 
@@ -590,7 +469,7 @@ export default function SetupClient({
 
       {/* Footer */}
       <footer className="border-t border-white/5 py-8 mt-16 bg-slate-950/20 text-center text-xs text-slate-500">
-        <p>Spotify Widget Creator &copy; {new Date().getFullYear()}. Cocok digunakan untuk streaming OBS, vMix, & Streamlabs.</p>
+        <p>Music Stream Widget &copy; {new Date().getFullYear()}. Cocok digunakan untuk streaming OBS, vMix, & Streamlabs via Last.fm.</p>
       </footer>
     </div>
   );
